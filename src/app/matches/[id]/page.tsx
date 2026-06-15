@@ -36,7 +36,7 @@ export default async function MatchDetailsPage({ params, searchParams }: MatchDe
     <DashboardLayout>
       <Stack spacing={3}>
         <Button href={`/matches?sport=${sport}`} sx={{ alignSelf: "flex-start" }}>
-          ? Back to matches
+          Back to matches
         </Button>
         {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
         {match ? <MatchDetails match={match} /> : null}
