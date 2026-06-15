@@ -8,6 +8,8 @@ import type {
   CloudbetMatch,
   CloudbetMatchDetails,
   CloudbetOddsSelection,
+  CloudbetSport,
+  CloudbetSportsResponse,
   MatchesSummary,
 } from "./cloudbet-types";
 
@@ -236,6 +238,13 @@ export function summarizeMatches(matches: CloudbetMatch[]): MatchesSummary {
   );
 }
 
+export async function getSports(): Promise<CloudbetSport[]> {
+  const response = await cloudbetGet<CloudbetSportsResponse>("/v2/odds/sports");
+
+  return [...(response.sports ?? [])]
+    .filter((sport) => sport.eventCount === undefined || sport.eventCount > 0)
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
 export interface MatchQueryOptions {
   sport?: string;
   limit?: number;
@@ -306,5 +315,7 @@ export async function getMatchById(
   const unfilteredMatch = await cloudbetGet<CloudbetEventResponse>(`/v2/odds/events/${encodeURIComponent(matchId)}`);
   return refreshMatchLinePrices(unfilteredMatch);
 }
+
+
 
 

@@ -1,9 +1,10 @@
-﻿import { Alert, Box, Button, Stack, TextField, Typography } from "@mui/material";
+﻿import { Alert, Box, Stack, Typography } from "@mui/material";
 import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
-import { requireUser } from "@/lib/supabase/auth";
+import { MatchesFilters } from "@/components/matches/MatchesFilters";
 import { MatchesTable } from "@/components/matches/MatchesTable";
-import { getAvailableMatches } from "@/lib/cloudbet/cloudbet-service";
-import type { CloudbetMatch } from "@/lib/cloudbet/cloudbet-types";
+import { getAvailableMatches, getSports } from "@/lib/cloudbet/cloudbet-service";
+import type { CloudbetMatch, CloudbetSport } from "@/lib/cloudbet/cloudbet-types";
+import { requireUser } from "@/lib/supabase/auth";
 
 interface MatchesPageProps {
   searchParams: Promise<{ sport?: string; limit?: string }>;
@@ -13,6 +14,13 @@ interface MatchesData {
   matches: CloudbetMatch[];
   errorMessage?: string;
 }
+
+const fallbackSports: CloudbetSport[] = [
+  { key: "soccer", name: "Soccer" },
+  { key: "tennis", name: "Tennis" },
+  { key: "basketball", name: "Basketball" },
+  { key: "baseball", name: "Baseball" },
+];
 
 async function getMatchesData(sport: string, limit: number): Promise<MatchesData> {
   try {
@@ -26,6 +34,15 @@ async function getMatchesData(sport: string, limit: number): Promise<MatchesData
   }
 }
 
+async function getSportsData(): Promise<CloudbetSport[]> {
+  try {
+    const sports = await getSports();
+    return sports.length > 0 ? sports : fallbackSports;
+  } catch {
+    return fallbackSports;
+  }
+}
+
 function getSafeLimit(value?: string) {
   if (!value) {
     return 100;
@@ -35,10 +52,15 @@ function getSafeLimit(value?: string) {
   return Number.isInteger(parsedValue) && parsedValue > 0 && parsedValue <= 10000 ? parsedValue : 100;
 }
 
+function getSafeSport(value: string, sports: CloudbetSport[]) {
+  return sports.some((sport) => sport.key === value) ? value : "soccer";
+}
+
 export default async function MatchesPage({ searchParams }: MatchesPageProps) {
   await requireUser("/matches");
   const params = await searchParams;
-  const sport = params.sport?.trim() || "soccer";
+  const sports = await getSportsData();
+  const sport = getSafeSport(params.sport?.trim() || "soccer", sports);
   const limit = getSafeLimit(params.limit);
   const { matches, errorMessage } = await getMatchesData(sport, limit);
 
@@ -50,28 +72,11 @@ export default async function MatchesPage({ searchParams }: MatchesPageProps) {
             Matches
           </Typography>
           <Typography color="text.secondary" sx={{ mt: 1 }}>
-            Browse live and upcoming Cloudbet events. Use the sport key from Cloudbet, such as soccer, tennis, or basketball.
+            Browse live and upcoming Cloudbet events by sport.
           </Typography>
         </Box>
 
-        <Box
-          component="form"
-          sx={{
-            alignItems: "center",
-            bgcolor: "common.white",
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 4,
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 2,
-            p: 2,
-          }}
-        >
-          <TextField defaultValue={sport} label="Sport key" name="sport" size="small" />
-          <TextField defaultValue={limit} slotProps={{ htmlInput: { min: 1, max: 10000 } }} label="Limit" name="limit" size="small" type="number" />
-          <Button type="submit" variant="contained">Refresh</Button>
-        </Box>
+        <MatchesFilters limit={limit} sport={sport} sports={sports} />
 
         {errorMessage ? <Alert severity="warning">{errorMessage}</Alert> : null}
         <MatchesTable errorMessage={errorMessage} matches={matches} />
@@ -79,5 +84,3 @@ export default async function MatchesPage({ searchParams }: MatchesPageProps) {
     </DashboardLayout>
   );
 }
-
-
