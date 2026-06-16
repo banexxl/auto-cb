@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Box, Button, Card, CardContent, Chip, Divider, FormControlLabel, Grid, Snackbar, Stack, Switch, Typography } from "@mui/material";
+import { Alert, Box, Button, Card, CardContent, Chip, Divider, FormControlLabel, Grid, Snackbar, Stack, Switch, Typography } from "@mui/material";
 import { useMemo, useState } from "react";
 import type { TicketSelection } from "@/lib/ticket-types";
 import { addTicketSelection } from "@/utils/ticket-client";
@@ -159,7 +159,7 @@ function renderOpinionGroups(opinionGroups: OpinionGroup[]) {
 
 export function MatchDetails({ match }: MatchDetailsProps) {
   const [showOnlyActiveOdds, setShowOnlyActiveOdds] = useState(true);
-  const [ticketMessageOpen, setTicketMessageOpen] = useState(false);
+  const [ticketAlert, setTicketAlert] = useState<{ message: string; severity: "success" | "error" } | null>(null);
   const markets = useMemo(() => Object.entries(match.markets ?? {}).slice(0, 12), [match.markets]);
   const opinionGroups = useMemo(() => getOpinionGroups(match).slice(0, 12), [match]);
   const allSelections = useMemo(() => markets.flatMap(([, market]) => getSelections(market)), [markets]);
@@ -169,6 +169,7 @@ export function MatchDetails({ match }: MatchDetailsProps) {
 
   function handleAddToTicket(marketKey: string, market: CloudbetMarket, selection: CloudbetOddsSelection) {
     if (!selection.marketUrl || !isSelectionActive(selection)) {
+      setTicketAlert({ message: "Unable to add this selection to your ticket.", severity: "error" });
       return;
     }
 
@@ -188,8 +189,12 @@ export function MatchDetails({ match }: MatchDetailsProps) {
       sportKey: match.sport?.key ?? "soccer",
     };
 
-    addTicketSelection(ticketSelection);
-    setTicketMessageOpen(true);
+    try {
+      addTicketSelection(ticketSelection);
+      setTicketAlert({ message: "Selection added to your ticket.", severity: "success" });
+    } catch {
+      setTicketAlert({ message: "Unable to add this selection to your ticket.", severity: "error" });
+    }
   }
 
   return (
@@ -339,6 +344,16 @@ export function MatchDetails({ match }: MatchDetailsProps) {
           </Card>
         )}
       </Box>
+      <Snackbar
+        anchorOrigin={{ horizontal: "center", vertical: "bottom" }}
+        autoHideDuration={3500}
+        onClose={() => setTicketAlert(null)}
+        open={ticketAlert !== null}
+      >
+        <Alert onClose={() => setTicketAlert(null)} severity={ticketAlert?.severity ?? "success"} variant="filled">
+          {ticketAlert?.message}
+        </Alert>
+      </Snackbar>
     </Stack>
   );
 }
