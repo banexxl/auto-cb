@@ -1,18 +1,26 @@
 ﻿import { Alert, Box, Stack, Typography } from "@mui/material";
+import { Suspense } from "react";
 import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
 import { MatchesFilters } from "@/components/matches/MatchesFilters";
-import { MatchesTable } from "@/components/matches/MatchesTable";
+import { MatchesTable, MatchesTableLoading } from "@/components/matches/MatchesTable";
 import { getAvailableMatches, getSports } from "@/lib/cloudbet/cloudbet-service";
 import type { CloudbetMatch, CloudbetSport } from "@/lib/cloudbet/cloudbet-types";
 import { requireUser } from "@/lib/supabase/auth";
 
 interface MatchesPageProps {
-  searchParams: Promise<{ sport?: string; limit?: string }>;
+  searchParams: Promise<{ competitionName?: string; sport?: string; limit?: string }>;
 }
 
 interface MatchesData {
   matches: CloudbetMatch[];
   errorMessage?: string;
+}
+
+interface MatchesResultsProps {
+  competitionName: string;
+  limit: number;
+  sport: string;
+  sports: CloudbetSport[];
 }
 
 const fallbackSports: CloudbetSport[] = [
@@ -56,13 +64,53 @@ function getSafeSport(value: string, sports: CloudbetSport[]) {
   return sports.some((sport) => sport.key === value) ? value : "soccer";
 }
 
+function getCompetitionNames(matches: CloudbetMatch[]) {
+  return Array.from(
+    new Set(
+      matches
+        .map((match) => match.competition?.name?.trim())
+        .filter((competitionName): competitionName is string => Boolean(competitionName)),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+}
+
+function filterMatchesByCompetition(matches: CloudbetMatch[], competitionName: string) {
+  if (!competitionName) {
+    return matches;
+  }
+
+  return matches.filter((match) => match.competition?.name?.trim() === competitionName);
+}
+
+async function MatchesResults({ competitionName, limit, sport, sports }: MatchesResultsProps) {
+  const { matches, errorMessage } = await getMatchesData(sport, limit);
+  const competitionNames = getCompetitionNames(matches);
+  const safeCompetitionName = competitionNames.includes(competitionName) ? competitionName : "";
+  const filteredMatches = filterMatchesByCompetition(matches, safeCompetitionName);
+
+  return (
+    <>
+      <MatchesFilters
+        competitionName={safeCompetitionName}
+        competitionNames={competitionNames}
+        limit={limit}
+        sport={sport}
+        sports={sports}
+      />
+
+      {errorMessage ? <Alert severity="warning">{errorMessage}</Alert> : null}
+      <MatchesTable errorMessage={errorMessage} matches={filteredMatches} />
+    </>
+  );
+}
+
 export default async function MatchesPage({ searchParams }: MatchesPageProps) {
   await requireUser("/matches");
   const params = await searchParams;
   const sports = await getSportsData();
   const sport = getSafeSport(params.sport?.trim() || "soccer", sports);
   const limit = getSafeLimit(params.limit);
-  const { matches, errorMessage } = await getMatchesData(sport, limit);
+  const competitionName = params.competitionName?.trim() ?? "";
 
   return (
     <DashboardLayout>
@@ -76,10 +124,9 @@ export default async function MatchesPage({ searchParams }: MatchesPageProps) {
           </Typography>
         </Box>
 
-        <MatchesFilters limit={limit} sport={sport} sports={sports} />
-
-        {errorMessage ? <Alert severity="warning">{errorMessage}</Alert> : null}
-        <MatchesTable errorMessage={errorMessage} matches={matches} />
+        <Suspense fallback={<MatchesTableLoading />} key={`${sport}-${limit}-${competitionName}`}>
+          <MatchesResults competitionName={competitionName} limit={limit} sport={sport} sports={sports} />
+        </Suspense>
       </Stack>
     </DashboardLayout>
   );

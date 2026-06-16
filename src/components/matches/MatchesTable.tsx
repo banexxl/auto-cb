@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Alert, Box, Button, Chip, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from "@mui/material";
 import Link from "next/link";
 import type { CloudbetMatch } from "@/lib/cloudbet/cloudbet-types";
 
@@ -103,6 +103,37 @@ export function MatchesTable({ matches, errorMessage }: MatchesTableProps) {
           Showing {matches.length} live and upcoming Cloudbet events.
         </Typography>
       </Box>
+    </TableContainer>
+  );
+}
+
+export function MatchesTableLoading() {
+  return (
+    <TableContainer component={Paper} sx={{ borderRadius: 4 }}>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Match</TableCell>
+            <TableCell>Competition</TableCell>
+            <TableCell>Start</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell align="right">Markets</TableCell>
+            <TableCell align="right">Details</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          <TableRow>
+            <TableCell colSpan={6}>
+              <Box sx={{ alignItems: "center", display: "flex", flexDirection: "column", gap: 2, py: 8 }}>
+                <CircularProgress />
+                <Typography color="text.secondary" variant="body2">
+                  Loading matches...
+                </Typography>
+              </Box>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
     </TableContainer>
   );
 }
