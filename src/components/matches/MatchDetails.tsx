@@ -190,10 +190,10 @@ export function MatchDetails({ match }: MatchDetailsProps) {
     };
 
     try {
-      const selectionAlreadyAdded = readTicketSelections().some((selection) => selection.id === ticketSelection.id);
+      const matchAlreadyAdded = readTicketSelections().some((selection) => selection.eventId === ticketSelection.eventId);
 
-      if (selectionAlreadyAdded) {
-        setTicketAlert({ message: "This odd is already added to your ticket.", severity: "warning" });
+      if (matchAlreadyAdded) {
+        setTicketAlert({ message: "This match is already in your ticket.", severity: "warning" });
         return;
       }
 
