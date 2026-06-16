@@ -1,6 +1,7 @@
 ﻿"use client";
 
-import { Alert, Box, Button, Card, CardContent, Chip, Divider, IconButton, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Card, CardContent, Chip, Divider, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, TextField, Typography } from "@mui/material";
+import type { SelectChangeEvent } from "@mui/material/Select";
 import { useEffect, useMemo, useState } from "react";
 import type { PlaceTicketBetApiResponse, PlaceTicketBetRequest, TicketSelection } from "@/lib/ticket-types";
 import { formatCloudbetParam } from "@/utils/cloudbet-formatters";
@@ -12,6 +13,16 @@ interface BetResult {
   message: string;
   severity: "success" | "warning" | "error";
 }
+
+const currencyOptions = [
+  { label: "Play EUR", value: "PLAY_EUR" },
+  { label: "Play USD", value: "PLAY_USD" },
+  { label: "EUR", value: "EUR" },
+  { label: "USD", value: "USD" },
+  { label: "Bitcoin", value: "BTC" },
+  { label: "Ethereum", value: "ETH" },
+  { label: "Tether", value: "USDT" },
+];
 
 function formatOdds(value: number) {
   return value.toFixed(3);
@@ -57,6 +68,10 @@ export function TicketClient() {
     clearTicketSelections();
     refreshTicket();
     setResults([]);
+  }
+
+  function handleCurrencyChange(event: SelectChangeEvent<string>) {
+    setCurrency(event.target.value);
   }
 
   async function placeSelection(selection: TicketSelection): Promise<BetResult> {
@@ -129,7 +144,21 @@ export function TicketClient() {
           <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ alignItems: { md: "center" }, justifyContent: "space-between" }}>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <TextField label="Stake" onChange={(event) => setStake(event.target.value)} size="small" type="number" value={stake} />
-              <TextField label="Currency" onChange={(event) => setCurrency(event.target.value)} size="small" value={currency} />
+              <FormControl size="small" sx={{ minWidth: 180 }}>
+                <InputLabel id="ticket-currency-label">Currency</InputLabel>
+                <Select
+                  label="Currency"
+                  labelId="ticket-currency-label"
+                  onChange={handleCurrencyChange}
+                  value={currency}
+                >
+                  {currencyOptions.map((currencyOption) => (
+                    <MenuItem key={currencyOption.value} value={currencyOption.value}>
+                      {currencyOption.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Stack>
             <Stack direction="row" spacing={1}>
               <Button color="inherit" disabled={selections.length === 0 || isPlacing} onClick={handleClear}>Clear</Button>
