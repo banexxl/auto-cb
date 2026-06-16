@@ -2,7 +2,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseConfig } from "@/lib/supabase/config";
 
-const protectedRoutes = ["/", "/dashboard", "/matches"];
+const protectedRoutes = ["/", "/dashboard", "/matches", "/ticket"];
 
 interface CookieToSet {
   name: string;
@@ -79,5 +79,6 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/dashboard", "/dashboard/:path*", "/matches", "/matches/:path*", "/login"],
+  matcher: ["/", "/dashboard", "/dashboard/:path*", "/matches", "/matches/:path*", "/ticket", "/ticket/:path*", "/login"],
 };
+

@@ -21,6 +21,7 @@ interface NavigationItem {
 const navigationItems: NavigationItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: "▦" },
   { href: "/matches", label: "Matches", icon: "⚽" },
+  { href: "/ticket", label: "Ticket", icon: "🎟️" },
 ];
 
 function DrawerContent() {
@@ -92,3 +93,4 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
     </Box>
   );
 }
+

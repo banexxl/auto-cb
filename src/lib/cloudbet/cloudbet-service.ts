@@ -1,4 +1,5 @@
 ﻿import { CloudbetApiError, cloudbetGet, cloudbetPost } from "./cloudbet-client";
+import type { PlaceTicketBetRequest, PlaceTicketBetResponse } from "@/lib/ticket-types";
 import type {
   CloudbetCompetition,
   CloudbetEventResponse,
@@ -238,6 +239,12 @@ export function summarizeMatches(matches: CloudbetMatch[]): MatchesSummary {
   );
 }
 
+export async function placeBet(request: PlaceTicketBetRequest): Promise<PlaceTicketBetResponse> {
+  return cloudbetPost<PlaceTicketBetResponse, PlaceTicketBetRequest>("/v3/bets/place", {
+    body: request,
+  });
+}
+
 export async function getSports(): Promise<CloudbetSport[]> {
   const response = await cloudbetGet<CloudbetSportsResponse>("/v2/odds/sports");
 
@@ -315,6 +322,7 @@ export async function getMatchById(
   const unfilteredMatch = await cloudbetGet<CloudbetEventResponse>(`/v2/odds/events/${encodeURIComponent(matchId)}`);
   return refreshMatchLinePrices(unfilteredMatch);
 }
+
 
 
 

@@ -1,7 +1,10 @@
 ﻿"use client";
 
-import { Box, Card, CardContent, Chip, Divider, FormControlLabel, Grid, Stack, Switch, Typography } from "@mui/material";
+import { Box, Button, Card, CardContent, Chip, Divider, FormControlLabel, Grid, Snackbar, Stack, Switch, Typography } from "@mui/material";
 import { useMemo, useState } from "react";
+import type { TicketSelection } from "@/lib/ticket-types";
+import { addTicketSelection } from "@/utils/ticket-client";
+import { getTicketSelectionKey } from "@/utils/ticket";
 import type {
   CloudbetMarket,
   CloudbetMatchDetails,
@@ -156,12 +159,38 @@ function renderOpinionGroups(opinionGroups: OpinionGroup[]) {
 
 export function MatchDetails({ match }: MatchDetailsProps) {
   const [showOnlyActiveOdds, setShowOnlyActiveOdds] = useState(true);
+  const [ticketMessageOpen, setTicketMessageOpen] = useState(false);
   const markets = useMemo(() => Object.entries(match.markets ?? {}).slice(0, 12), [match.markets]);
   const opinionGroups = useMemo(() => getOpinionGroups(match).slice(0, 12), [match]);
   const allSelections = useMemo(() => markets.flatMap(([, market]) => getSelections(market)), [markets]);
   const activeSelectionsCount = allSelections.filter(isSelectionActive).length;
   const allLinesDisabled = allSelections.length > 0 && activeSelectionsCount === 0;
   const visibleMarkets = buildMarketViewModels(markets, showOnlyActiveOdds);
+
+  function handleAddToTicket(marketKey: string, market: CloudbetMarket, selection: CloudbetOddsSelection) {
+    if (!selection.marketUrl || !isSelectionActive(selection)) {
+      return;
+    }
+
+    const ticketSelection: TicketSelection = {
+      id: getTicketSelectionKey({ eventId: String(match.id), marketUrl: selection.marketUrl }),
+      addedAt: new Date().toISOString(),
+      competitionName: match.competition?.name,
+      eventId: String(match.id),
+      eventName: match.name,
+      marketKey,
+      marketName: market.name ? formatCloudbetMarketKey(market.name) : formatCloudbetMarketKey(marketKey),
+      marketUrl: selection.marketUrl,
+      outcome: formatCloudbetOutcome(selection.outcome),
+      params: selection.params ? formatCloudbetParam(selection.params) : undefined,
+      price: selection.price,
+      side: selection.side,
+      sportKey: match.sport?.key ?? "soccer",
+    };
+
+    addTicketSelection(ticketSelection);
+    setTicketMessageOpen(true);
+  }
 
   return (
     <Stack spacing={3}>
@@ -257,7 +286,14 @@ export function MatchDetails({ match }: MatchDetailsProps) {
                               ) : null}
                             </Stack>
                           </Box>
-                          {getSelectionChip(selection)}
+                          <Stack spacing={1} sx={{ alignItems: "flex-end" }}>
+                            {getSelectionChip(selection)}
+                            {isSelectionActive(selection) ? (
+                              <Button onClick={() => handleAddToTicket(key, market, selection)} size="small" variant="outlined">
+                                Add
+                              </Button>
+                            ) : null}
+                          </Stack>
                         </Stack>
                       ))}
                     </Stack>
@@ -306,3 +342,5 @@ export function MatchDetails({ match }: MatchDetailsProps) {
     </Stack>
   );
 }
+
+
