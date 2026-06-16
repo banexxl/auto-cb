@@ -3,7 +3,7 @@
 import { Alert, Box, Button, Card, CardContent, Chip, Divider, FormControlLabel, Grid, Snackbar, Stack, Switch, Typography } from "@mui/material";
 import { useMemo, useState } from "react";
 import type { TicketSelection } from "@/lib/ticket-types";
-import { addTicketSelection } from "@/utils/ticket-client";
+import { addTicketSelection, readTicketSelections } from "@/utils/ticket-client";
 import { getTicketSelectionKey } from "@/utils/ticket";
 import type {
   CloudbetMarket,
@@ -159,7 +159,7 @@ function renderOpinionGroups(opinionGroups: OpinionGroup[]) {
 
 export function MatchDetails({ match }: MatchDetailsProps) {
   const [showOnlyActiveOdds, setShowOnlyActiveOdds] = useState(true);
-  const [ticketAlert, setTicketAlert] = useState<{ message: string; severity: "success" | "error" } | null>(null);
+  const [ticketAlert, setTicketAlert] = useState<{ message: string; severity: "success" | "warning" | "error" } | null>(null);
   const markets = useMemo(() => Object.entries(match.markets ?? {}).slice(0, 12), [match.markets]);
   const opinionGroups = useMemo(() => getOpinionGroups(match).slice(0, 12), [match]);
   const allSelections = useMemo(() => markets.flatMap(([, market]) => getSelections(market)), [markets]);
@@ -190,6 +190,13 @@ export function MatchDetails({ match }: MatchDetailsProps) {
     };
 
     try {
+      const selectionAlreadyAdded = readTicketSelections().some((selection) => selection.id === ticketSelection.id);
+
+      if (selectionAlreadyAdded) {
+        setTicketAlert({ message: "This odd is already added to your ticket.", severity: "warning" });
+        return;
+      }
+
       addTicketSelection(ticketSelection);
       setTicketAlert({ message: "Selection added to your ticket.", severity: "success" });
     } catch {
