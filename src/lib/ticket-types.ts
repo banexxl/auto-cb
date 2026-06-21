@@ -1,4 +1,4 @@
-﻿export interface TicketSelection {
+export interface TicketSelection {
   id: string;
   eventId: string;
   eventName: string;
@@ -20,27 +20,31 @@ export interface TicketSummary {
 }
 
 export interface PlaceTicketBetRequest {
-  acceptPriceChange: "NONE" | "BETTER" | "ANY";
   currency: string;
   eventId: string;
   marketUrl: string;
-  price: string;
+  outcome: string;
+  price: number;
   referenceId: string;
-  stake: string;
+  stake: number;
 }
 
 export interface PlaceTicketBetResponse {
   referenceId: string;
-  price: string;
-  eventId: string;
+  price?: string | number;
+  eventId?: string;
   marketUrl: string;
-  side: string;
+  outcome?: string;
+  side?: string;
   currency: string;
-  stake: string;
-  status: string;
-  error: string;
+  stake?: string | number;
+  status?: string;
+  state?: string;
+  error?: string;
+  rejectionCode?: string;
 }
 
 export interface PlaceTicketBetApiResponse {
   bet: PlaceTicketBetResponse;
 }
+

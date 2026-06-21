@@ -4,7 +4,7 @@ import { Alert, Box, Button, Card, CardContent, Chip, Divider, FormControl, Icon
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { useEffect, useMemo, useState } from "react";
 import type { PlaceTicketBetApiResponse, PlaceTicketBetRequest, TicketSelection } from "@/lib/ticket-types";
-import { formatCloudbetParam } from "@/utils/cloudbet-formatters";
+import { formatCloudbetOutcome, formatCloudbetParam } from "@/utils/cloudbet-formatters";
 import { calculateTicketSummary } from "@/utils/ticket";
 import { clearTicketSelections, readTicketSelections, removeTicketSelection } from "@/utils/ticket-client";
 
@@ -15,8 +15,6 @@ interface BetResult {
 }
 
 const currencyOptions = [
-  { label: "Play EUR", value: "PLAY_EUR" },
-  { label: "Play USD", value: "PLAY_USD" },
   { label: "EUR", value: "EUR" },
   { label: "USD", value: "USD" },
   { label: "Bitcoin", value: "BTC" },
@@ -75,14 +73,24 @@ export function TicketClient() {
   }
 
   async function placeSelection(selection: TicketSelection): Promise<BetResult> {
+    const parsedStake = Number(stake);
+
+    if (!Number.isFinite(parsedStake) || parsedStake <= 0) {
+      return {
+        id: selection.id,
+        message: "Enter a valid stake before placing bets.",
+        severity: "error",
+      };
+    }
+
     const request: PlaceTicketBetRequest = {
-      acceptPriceChange: "BETTER",
       currency,
       eventId: selection.eventId,
       marketUrl: selection.marketUrl,
-      price: String(selection.price),
+      outcome: selection.outcome,
+      price: selection.price,
       referenceId: createReferenceId(),
-      stake,
+      stake: parsedStake,
     };
 
     const response = await fetch("/api/cloudbet/bets/place", {
@@ -103,12 +111,14 @@ export function TicketClient() {
     }
 
     const body = (await response.json()) as PlaceTicketBetApiResponse;
-    const accepted = body.bet.status === "ACCEPTED";
-    const pending = body.bet.status === "PENDING_ACCEPTANCE";
+    const status = body.bet.status ?? body.bet.state ?? "UNKNOWN";
+    const error = body.bet.error ?? body.bet.rejectionCode;
+    const accepted = status === "ACCEPTED";
+    const pending = status === "PENDING_ACCEPTANCE" || status === "PENDING";
 
     return {
       id: selection.id,
-      message: `${selection.eventName}: ${body.bet.status}${body.bet.error ? ` - ${body.bet.error}` : ""}`,
+      message: `${selection.eventName}: ${status}${error ? ` - ${error}` : ""}`,
       severity: accepted ? "success" : pending ? "warning" : "error",
     };
   }
@@ -117,9 +127,12 @@ export function TicketClient() {
     setIsPlacing(true);
     setResults([]);
 
-    const betResults = await Promise.all(selections.map(placeSelection));
-    setResults(betResults);
-    setIsPlacing(false);
+    try {
+      const betResults = await Promise.all(selections.map(placeSelection));
+      setResults(betResults);
+    } finally {
+      setIsPlacing(false);
+    }
   }
 
   return (

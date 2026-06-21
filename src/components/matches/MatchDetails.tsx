@@ -182,7 +182,7 @@ export function MatchDetails({ match }: MatchDetailsProps) {
       marketKey,
       marketName: market.name ? formatCloudbetMarketKey(market.name) : formatCloudbetMarketKey(marketKey),
       marketUrl: selection.marketUrl,
-      outcome: formatCloudbetOutcome(selection.outcome),
+      outcome: selection.outcome,
       params: selection.params ? formatCloudbetParam(selection.params) : undefined,
       price: selection.price,
       side: selection.side,

@@ -1,4 +1,4 @@
-﻿import { CloudbetApiError, cloudbetGet, cloudbetPost } from "./cloudbet-client";
+import { CloudbetApiError, cloudbetGet, cloudbetPost } from "./cloudbet-client";
 import type { PlaceTicketBetRequest, PlaceTicketBetResponse } from "@/lib/ticket-types";
 import type {
   CloudbetCompetition,
@@ -239,9 +239,25 @@ export function summarizeMatches(matches: CloudbetMatch[]): MatchesSummary {
   );
 }
 
+type CloudbetPlaceBetRequest = Omit<PlaceTicketBetRequest, "outcome" | "price" | "stake"> & {
+  acceptPriceChange: "BETTER";
+  price: string;
+  stake: string;
+};
+
 export async function placeBet(request: PlaceTicketBetRequest): Promise<PlaceTicketBetResponse> {
-  return cloudbetPost<PlaceTicketBetResponse, PlaceTicketBetRequest>("/v3/bets/place", {
-    body: request,
+  const cloudbetRequest: CloudbetPlaceBetRequest = {
+    acceptPriceChange: "BETTER",
+    currency: request.currency,
+    eventId: request.eventId,
+    marketUrl: request.marketUrl,
+    price: String(request.price),
+    referenceId: request.referenceId,
+    stake: String(request.stake),
+  };
+
+  return cloudbetPost<PlaceTicketBetResponse, CloudbetPlaceBetRequest>("/v3/bets/place", {
+    body: cloudbetRequest,
   });
 }
 
@@ -322,6 +338,7 @@ export async function getMatchById(
   const unfilteredMatch = await cloudbetGet<CloudbetEventResponse>(`/v2/odds/events/${encodeURIComponent(matchId)}`);
   return refreshMatchLinePrices(unfilteredMatch);
 }
+
 
 
 
