@@ -15,6 +15,11 @@ interface BetResult {
   severity: "success" | "warning" | "error";
 }
 
+interface CronTestResult {
+  message: string;
+  severity: "success" | "warning" | "error";
+}
+
 const currencyOptions = [
   { label: "EUR", value: "EUR" },
   { label: "USD", value: "USD" },
@@ -39,8 +44,11 @@ export function TicketClient() {
   const [selections, setSelections] = useState<TicketSelection[]>([]);
   const [stake, setStake] = useState("1.00");
   const [currency, setCurrency] = useState("EUR");
+  const [cronSecret, setCronSecret] = useState("");
   const [isPlacing, setIsPlacing] = useState(false);
+  const [isTestingAnalysis, setIsTestingAnalysis] = useState(false);
   const [results, setResults] = useState<BetResult[]>([]);
+  const [cronTestResult, setCronTestResult] = useState<CronTestResult | null>(null);
   const summary = useMemo(() => calculateTicketSummary(selections), [selections]);
 
   function refreshTicket() {
@@ -71,6 +79,49 @@ export function TicketClient() {
 
   function handleCurrencyChange(event: SelectChangeEvent<string>) {
     setCurrency(event.target.value);
+  }
+
+  async function handleAnalyzeTicket() {
+    const trimmedCronSecret = cronSecret.trim();
+
+    if (!trimmedCronSecret) {
+      setCronTestResult({ message: "Enter the cron secret before testing analysis.", severity: "warning" });
+      return;
+    }
+
+    setIsTestingAnalysis(true);
+    setCronTestResult(null);
+
+    try {
+      const response = await fetch("/api/cron/analyze-matches", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-cron-secret": trimmedCronSecret,
+        },
+        body: JSON.stringify({}),
+      });
+
+      const body = (await response.json()) as {
+        message?: string;
+        ticketId?: string | number;
+        pendingTicket?: { isPlayed?: boolean; message?: string };
+      };
+
+      if (!response.ok) {
+        setCronTestResult({ message: body.message ?? "AI analysis test failed.", severity: "error" });
+        return;
+      }
+
+      setCronTestResult({
+        message: `AI analysis ticket created${body.ticketId ? `: ${body.ticketId}` : "."} ${body.pendingTicket?.message ?? "Ticket is not played yet."}`,
+        severity: "success",
+      });
+    } catch {
+      setCronTestResult({ message: "Unable to run AI analysis test.", severity: "error" });
+    } finally {
+      setIsTestingAnalysis(false);
+    }
   }
 
   async function placeSelection(selection: TicketSelection): Promise<BetResult> {
@@ -188,6 +239,32 @@ export function TicketClient() {
                 {isPlacing ? "Placing..." : "Place bets"}
               </Button>
             </Stack>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ borderRadius: 4 }}>
+        <CardContent>
+          <Stack spacing={2}>
+            <Box>
+              <Typography sx={{ fontWeight: 900 }}>Test AI analysis cron</Typography>
+              <Typography color="text.secondary" variant="body2">
+                Fetches soccer and basketball selections with SELECTION_ENABLED status, runs analysis, and saves an unplayed pending Supabase ticket.
+              </Typography>
+            </Box>
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ alignItems: { md: "center" }, justifyContent: "space-between" }}>
+              <TextField
+                label="Cron secret"
+                onChange={(event) => setCronSecret(event.target.value)}
+                size="small"
+                type="password"
+                value={cronSecret}
+              />
+              <Button disabled={isTestingAnalysis} onClick={handleAnalyzeTicket} variant="outlined">
+                {isTestingAnalysis ? "Testing..." : "Test AI analysis"}
+              </Button>
+            </Stack>
+            {cronTestResult ? <Alert severity={cronTestResult.severity}>{cronTestResult.message}</Alert> : null}
           </Stack>
         </CardContent>
       </Card>

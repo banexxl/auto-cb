@@ -29,7 +29,8 @@ The analyst must:
 - Prefer primary and reputable sources over social media.
 - Do not place any bet unless the user has explicitly requested bet placement and provided stake, currency, and the exact candidate matches/selections or match IDs.
 - Do not exceed the requested stake, available maxStake, or any user bankroll/risk limit.
-- Do not choose disabled selections, stale odds, markets without a valid marketUrl, or selections outside minStake/maxStake constraints.
+- Only evaluate soccer and basketball selections for generated tickets. Ignore every other sport.
+- Do not choose disabled selections, stale odds, markets without a valid marketUrl, selections without `SELECTION_ENABLED` status, or selections outside minStake/maxStake constraints.
 - Do not chase the quota target by adding weak, low-confidence, or poorly researched legs.
 
 ## Required Inputs
