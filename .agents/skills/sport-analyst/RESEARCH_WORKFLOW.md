@@ -133,7 +133,13 @@ If betting-market analysis is requested:
 - Avoid claiming certainty from odds movement alone
 
 ## Step 10: Ticket Construction, If Requested
-When the user provides an array of matches and asks for a betting ticket or bet placement:
+When the user provides candidate matches and asks for a betting ticket or bet placement:
+
+- Analyze candidate matches one by one, not all at once.
+- For now, evaluate basketball only; ignore soccer and all other sports.
+- Add at most one selection from each analyzed match.
+- Stop analyzing more matches as soon as the running combined quota is between 1.5 and 2.2.
+
 
 - Treat each array item as a candidate match, not as an automatic leg.
 - Re-check current odds, event status, cutoff time, selection status, marketUrl, minStake, and maxStake.
@@ -141,8 +147,10 @@ When the user provides an array of matches and asks for a betting ticket or bet 
 - Build combinations by multiplying decimal odds and keep only totals from 1.5 through 2.2 inclusive.
 - Prefer the lowest-risk valid combination, even if another combination has a higher payout.
 - Reject any selection with disabled status, stale odds, missing marketUrl, insufficient stake limits, or low-confidence evidence.
-- Return `NO_BET` when no combination satisfies both quota and risk requirements.
-- Place the bet only when explicitly authorized with stake and currency; otherwise return `PROPOSE_ONLY`.
+- Return `NO_BET` or `FAILED` when no combination satisfies probability, quota, market-status, stake-limit, and risk requirements.
+- Auto-place the bet only when AUTO_PLACE is explicitly authorized with stake, currency, valid proposedBetBody fields, and an available placement API/tool. Otherwise return `PROPOSE_ONLY`.
+- Before auto-placement, re-check every selected leg: basketball only, `SELECTION_ENABLED`, price > 0, minStake > 0, maxStake > 0, stake within limits, marketUrl present, model-assessed probability > 65%, combined quota between 1.5 and 2.2, and no high integrity concern.
+- After auto-placement, report accepted, pending, rejected, or failed status for every API request and preserve enough reference IDs for audit/retry.
 
 ## Step 11: Final Synthesis
 Summarize:

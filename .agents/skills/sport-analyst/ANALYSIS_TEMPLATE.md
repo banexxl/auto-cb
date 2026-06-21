@@ -108,10 +108,13 @@ Summarize the most likely match dynamic and the evidence behind it.
 ## 14. Betting Ticket Recommendation
 Only include when ticket-building or bet placement is requested.
 
-- Decision: PLACE_BET / PROPOSE_ONLY / NO_BET
+- Decision: AUTO_PLACE / PLACE_BET / PROPOSE_ONLY / FAILED / NO_BET
 - Combined quota: decimal total from selected odds
 - Target range check: must be >= 1.5 and <= 2.2
 - Stake/currency:
+- Auto-place authorized: Yes / No
+- Probability gate: every selected leg must be > 65%
+- Market gate: basketball only, `SELECTION_ENABLED`, valid marketUrl, price/minStake/maxStake > 0
 
 | Leg | Match | Market | Outcome | Odds | Confidence | Evidence summary | marketUrl | Stake limits |
 |---|---|---|---|---:|---|---|---|---|
@@ -120,7 +123,7 @@ Only include when ticket-building or bet placement is requested.
 List rejected options and explain whether the reason was weak evidence, odds outside range, disabled/stale market, missing marketUrl, stake limits, integrity risk, or unacceptable uncertainty.
 
 ### Placement Result
-If a bet was actually placed, list accepted, pending, rejected, or failed status for every leg/API request.
+If a bet was actually placed through AUTO_PLACE or PLACE_BET mode, list accepted, pending, rejected, or failed status for every leg/API request, including reference IDs. If not placed, state why placement was skipped.
 
 ## 15. Confidence Rating
 - Confidence: High / Medium / Low
