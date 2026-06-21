@@ -11,6 +11,7 @@ import { clearTicketSelections, readTicketSelections, removeTicketSelection } fr
 interface BetResult {
   id: string;
   message: string;
+  placed: boolean;
   severity: "success" | "warning" | "error";
 }
 
@@ -37,7 +38,7 @@ function createReferenceId() {
 export function TicketClient() {
   const [selections, setSelections] = useState<TicketSelection[]>([]);
   const [stake, setStake] = useState("1.00");
-  const [currency, setCurrency] = useState("PLAY_EUR");
+  const [currency, setCurrency] = useState("EUR");
   const [isPlacing, setIsPlacing] = useState(false);
   const [results, setResults] = useState<BetResult[]>([]);
   const summary = useMemo(() => calculateTicketSummary(selections), [selections]);
@@ -79,6 +80,7 @@ export function TicketClient() {
       return {
         id: selection.id,
         message: "Enter a valid stake before placing bets.",
+        placed: false,
         severity: "error",
       };
     }
@@ -106,6 +108,7 @@ export function TicketClient() {
       return {
         id: selection.id,
         message: body.message ?? "Bet placement failed.",
+        placed: false,
         severity: "error",
       };
     }
@@ -119,6 +122,7 @@ export function TicketClient() {
     return {
       id: selection.id,
       message: `${selection.eventName}: ${status}${error ? ` - ${error}` : ""}`,
+      placed: true,
       severity: accepted ? "success" : pending ? "warning" : "error",
     };
   }
@@ -130,6 +134,11 @@ export function TicketClient() {
     try {
       const betResults = await Promise.all(selections.map(placeSelection));
       setResults(betResults);
+
+      if (betResults.length > 0 && betResults.every((result) => result.placed)) {
+        clearTicketSelections();
+        window.location.reload();
+      }
     } finally {
       setIsPlacing(false);
     }
