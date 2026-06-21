@@ -233,11 +233,22 @@ function selectionToMatchSelection(
   return normalizeSelection(matchSelection);
 }
 
+function isEnabledAnalysisSelection(selection: MatchSelection) {
+  return (
+    selection.status === ENABLED_SELECTION_STATUS &&
+    isAllowedAnalysisSport(selection.sportKey) &&
+    selection.price > 0 &&
+    selection.minStake > 0 &&
+    selection.maxStake > 0
+  );
+}
+
 function extractMatchSelections(match: CloudbetMatch): MatchSelection[] {
   return Object.entries(match.markets ?? {}).flatMap(([marketKey, market]) =>
     getSelections(market)
       .map((selection) => selectionToMatchSelection(match, marketKey, selection))
-      .filter((selection): selection is MatchSelection => selection !== null),
+      .filter((selection): selection is MatchSelection => selection !== null)
+      .filter(isEnabledAnalysisSelection),
   );
 }
 
@@ -269,16 +280,7 @@ async function loadCloudbetAnalysisSelections() {
 }
 
 function filterEnabledSelections(selections: MatchSelection[]) {
-  return selections
-    .map(normalizeSelection)
-    .filter(
-      (selection) =>
-        selection.status === ENABLED_SELECTION_STATUS &&
-        isAllowedAnalysisSport(selection.sportKey) &&
-        selection.price > 0 &&
-        selection.minStake > 0 &&
-        selection.maxStake > 0,
-    );
+  return selections.map(normalizeSelection).filter(isEnabledAnalysisSelection);
 }
 
 function mapToProposedBetBody(selection: MatchSelection): ProposedBetBody {
