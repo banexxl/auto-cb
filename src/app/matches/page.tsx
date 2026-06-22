@@ -1,6 +1,7 @@
 ﻿import { Alert, Box, Stack, Typography } from "@mui/material";
 import { Suspense } from "react";
 import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
+import { BasketballEnabledMatchesButton } from "@/components/matches/BasketballEnabledMatchesButton";
 import { MatchesFilters } from "@/components/matches/MatchesFilters";
 import { MatchesTable, MatchesTableLoading } from "@/components/matches/MatchesTable";
 import { getAvailableMatches, getSports } from "@/lib/cloudbet/cloudbet-service";
@@ -115,13 +116,16 @@ export default async function MatchesPage({ searchParams }: MatchesPageProps) {
   return (
     <DashboardLayout>
       <Stack spacing={3}>
-        <Box>
-          <Typography component="h1" sx={{ fontWeight: 900 }} variant="h4">
-            Matches
-          </Typography>
-          <Typography color="text.secondary" sx={{ mt: 1 }}>
-            Browse live and upcoming Cloudbet events by sport.
-          </Typography>
+        <Box sx={{ alignItems: { sm: "center" }, display: "flex", flexDirection: { xs: "column", sm: "row" }, gap: 2, justifyContent: "space-between" }}>
+          <Box>
+            <Typography component="h1" sx={{ fontWeight: 900 }} variant="h4">
+              Matches
+            </Typography>
+            <Typography color="text.secondary" sx={{ mt: 1 }}>
+              Browse live and upcoming Cloudbet events by sport.
+            </Typography>
+          </Box>
+          <BasketballEnabledMatchesButton />
         </Box>
 
         <Suspense fallback={<MatchesTableLoading />} key={`${sport}-${limit}-${competitionName}`}>

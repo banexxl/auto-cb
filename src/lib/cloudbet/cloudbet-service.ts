@@ -16,7 +16,7 @@ import type {
 
 const DEFAULT_SPORT = "soccer";
 const DEFAULT_WINDOW_DAYS = 7;
-const DEFAULT_LIMIT = 100;
+const DEFAULT_LIMIT = 1000;
 const MAX_LINE_REFRESH_SELECTIONS = 60;
 
 const DEFAULT_MARKETS_BY_SPORT: Record<string, readonly string[]> = {

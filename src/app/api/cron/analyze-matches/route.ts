@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 
 const SPORT_ANALYST_SKILL_DIR = ".agents/skills/sport-analyst";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-5.5-pro-2026-04-23";
 const ANALYSIS_SPORTS = ["basketball"] as const;
 const ENABLED_SELECTION_STATUS = "SELECTION_ENABLED";
 const ANALYSIS_MATCH_LIMIT_PER_SPORT = Number(process.env.CRON_ANALYSIS_MATCH_LIMIT_PER_SPORT ?? 100);
@@ -500,6 +500,14 @@ function buildSportTicketDefaultUpdate(matches: StoredMatchSelection[]): SportTi
 }
 
 async function insertSportTicket(ticket: SportTicketInsert) {
+  console.info("[cron:analyze-matches:sport_tickets:insert:start]", {
+    status: ticket.status,
+    matchesCount: ticket.matches.length,
+    totalQuota: ticket.total_quota,
+    payin: ticket.payin,
+    possiblePayout: ticket.possible_payout,
+  });
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("sport_tickets")
@@ -517,10 +525,25 @@ async function insertSportTicket(ticket: SportTicketInsert) {
     throw new Error("Unable to persist generated sport ticket.");
   }
 
+  console.info("[cron:analyze-matches:sport_tickets:insert:success]", {
+    ticketId: data.id,
+    status: ticket.status,
+    matchesCount: ticket.matches.length,
+  });
+
   return data.id;
 }
 
 async function updateSportTicket(ticketId: SportTicketInsertResult["id"], ticket: SportTicketUpdate) {
+  console.info("[cron:analyze-matches:sport_tickets:update:start]", {
+    ticketId,
+    status: ticket.status,
+    matchesCount: ticket.matches.length,
+    totalQuota: ticket.total_quota,
+    payin: ticket.payin,
+    possiblePayout: ticket.possible_payout,
+  });
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("sport_tickets")
@@ -538,6 +561,12 @@ async function updateSportTicket(ticketId: SportTicketInsertResult["id"], ticket
     console.error("[cron:analyze-matches:sport_tickets:update:empty]", { ticketId });
     throw new Error("Unable to update generated sport ticket.");
   }
+
+  console.info("[cron:analyze-matches:sport_tickets:update:success]", {
+    ticketId: data.id,
+    status: ticket.status,
+    matchesCount: ticket.matches.length,
+  });
 
   return data.id;
 }
@@ -737,6 +766,13 @@ async function insertFailedTicket(message: string, matches: StoredMatchSelection
   return { ticket, ticketId };
 }
 
+async function insertDefaultTicket(matches: StoredMatchSelection[] = []) {
+  const ticket = buildSportTicketDefaults(matches);
+  const ticketId = await insertSportTicket(ticket);
+
+  return { ticket, ticketId };
+}
+
 export async function POST(request: Request) {
   const missingEnvVars = getMissingEnvVars();
 
@@ -772,12 +808,12 @@ export async function POST(request: Request) {
     }
 
     if (candidateSelections.length === 0) {
-      const { ticketId } = await insertFailedTicket(NO_MARKETS_MESSAGE);
+      const { ticket, ticketId } = await insertDefaultTicket();
 
       return NextResponse.json({
         success: true,
         ticketId,
-        status: "FAILED",
+        status: ticket.status,
         message: NO_MARKETS_MESSAGE,
       });
     }
@@ -785,18 +821,31 @@ export async function POST(request: Request) {
     const enabledSelections = filterEnabledSelections(candidateSelections);
 
     if (enabledSelections.length === 0) {
-      const { ticketId } = await insertFailedTicket(NO_VALID_TICKET_MESSAGE);
+      const { ticket, ticketId } = await insertDefaultTicket();
 
       return NextResponse.json({
         success: true,
         ticketId,
-        status: "FAILED",
-        message: NO_VALID_TICKET_MESSAGE,
+        status: ticket.status,
+        message: NO_MARKETS_MESSAGE,
+      });
+    }
+
+    const firstMatchSelections = groupSelectionsByMatch(enabledSelections)[0] ?? [];
+
+    if (firstMatchSelections.length === 0) {
+      const { ticket, ticketId } = await insertDefaultTicket();
+
+      return NextResponse.json({
+        success: true,
+        ticketId,
+        status: ticket.status,
+        message: NO_MARKETS_MESSAGE,
       });
     }
 
     const skillPrompt = await loadSportAnalystSkills();
-    const { persistedMatches, selectedSelections, ticketId } = await buildIncrementalTicket(openaiApiKey, skillPrompt, enabledSelections);
+    const { persistedMatches, selectedSelections, ticketId } = await buildIncrementalTicket(openaiApiKey, skillPrompt, firstMatchSelections);
     const totalQuota = calculateTotalQuota(selectedSelections);
 
     if (ticketId === null) {
