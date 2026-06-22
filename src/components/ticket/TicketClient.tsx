@@ -20,6 +20,13 @@ interface CronTestResult {
   severity: "success" | "warning" | "error";
 }
 
+interface EnabledBasketballMatchesResponse {
+  matches: unknown[];
+  totalMatches: number;
+  totalSelections: number;
+  message?: string;
+}
+
 const currencyOptions = [
   { label: "EUR", value: "EUR" },
   { label: "USD", value: "USD" },
@@ -93,6 +100,19 @@ export function TicketClient() {
     setCronTestResult(null);
 
     try {
+      const enabledMatchesResponse = await fetch("/api/cloudbet/matches/basketball-enabled", { cache: "no-store" });
+      const enabledMatchesBody = (await enabledMatchesResponse.json()) as EnabledBasketballMatchesResponse;
+
+      if (!enabledMatchesResponse.ok) {
+        setCronTestResult({ message: enabledMatchesBody.message ?? "Unable to check enabled basketball matches.", severity: "error" });
+        return;
+      }
+
+      if (enabledMatchesBody.totalMatches === 0 || enabledMatchesBody.totalSelections === 0) {
+        setCronTestResult({ message: "No enabled basketball matches found. Analysis was not started.", severity: "warning" });
+        return;
+      }
+
       const response = await fetch("/api/cron/analyze-matches", {
         method: "POST",
         headers: {
@@ -249,7 +269,7 @@ export function TicketClient() {
             <Box>
               <Typography sx={{ fontWeight: 900 }}>Test AI analysis cron</Typography>
               <Typography color="text.secondary" variant="body2">
-                Fetches soccer and basketball selections with SELECTION_ENABLED status, runs analysis, and saves an unplayed pending Supabase ticket.
+                Checks for enabled basketball matches, runs analysis only when matches exist, and saves an unplayed pending Supabase ticket.
               </Typography>
             </Box>
             <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ alignItems: { md: "center" }, justifyContent: "space-between" }}>
