@@ -70,9 +70,12 @@ type SportTicketInsert = {
   possible_payout: number | null;
   is_played: boolean;
   played_successfully: boolean | null;
-  message: string;
+  message: string | null;
+  external_ticket_id: string | null;
   reference_id: string;
 };
+
+type SportTicketUpdate = Omit<SportTicketInsert, "reference_id">;
 
 type SportTicketInsertResult = {
   id: string | number;
@@ -377,6 +380,8 @@ function mergeAnalyses(analyses: AiTicketAnalysis[], selectedSelections: MatchSe
 async function buildIncrementalTicket(openaiApiKey: string, skillPrompt: string, enabledSelections: MatchSelection[]) {
   const selectedSelections: MatchSelection[] = [];
   const analyses: AiTicketAnalysis[] = [];
+  const persistedMatches: StoredMatchSelection[] = [];
+  let ticketId: SportTicketInsertResult["id"] | null = null;
 
   for (const matchSelections of groupSelectionsByMatch(enabledSelections)) {
     const currentQuota = calculateTotalQuota(selectedSelections);
@@ -388,17 +393,26 @@ async function buildIncrementalTicket(openaiApiKey: string, skillPrompt: string,
     const analysis = await createAnalysis(openaiApiKey, skillPrompt, matchSelections, selectedSelections);
     analyses.push(analysis);
 
-    if (analysis.decision !== "PROPOSE_TICKET") {
-      continue;
+    let nextSelection: MatchSelection | undefined;
+    let nextProposedBetBody: ProposedBetBody | undefined;
+
+    if (analysis.decision === "PROPOSE_TICKET") {
+      nextSelection = getIncrementalSelection(selectedSelections, matchSelections, analysis);
+
+      if (nextSelection) {
+        nextProposedBetBody = mapToProposedBetBody(nextSelection);
+        selectedSelections.push(nextSelection);
+      }
     }
 
-    const nextSelection = getIncrementalSelection(selectedSelections, matchSelections, analysis);
+    const matchProposedBetBodies = nextProposedBetBody ? [nextProposedBetBody] : [];
+    persistedMatches.push(...buildStoredMatches(matchSelections, analysis, matchProposedBetBodies));
 
-    if (!nextSelection) {
-      continue;
+    if (ticketId === null) {
+      ticketId = await insertSportTicket(buildSportTicketDefaults(persistedMatches));
+    } else {
+      await updateSportTicket(ticketId, buildSportTicketDefaultUpdate(persistedMatches));
     }
-
-    selectedSelections.push(nextSelection);
 
     if (isQuotaInRange(calculateTotalQuota(selectedSelections))) {
       break;
@@ -407,7 +421,9 @@ async function buildIncrementalTicket(openaiApiKey: string, skillPrompt: string,
 
   return {
     analysis: mergeAnalyses(analyses, selectedSelections),
+    persistedMatches,
     selectedSelections,
+    ticketId,
   };
 }
 
@@ -443,6 +459,22 @@ function buildStoredMatches(
   });
 }
 
+function buildSportTicketDefaults(matches: StoredMatchSelection[]): SportTicketInsert {
+  return {
+    status: "PENDING_REVIEW",
+    currency: "USDT",
+    matches,
+    total_quota: null,
+    payin: 0,
+    possible_payout: null,
+    is_played: false,
+    played_successfully: null,
+    message: null,
+    external_ticket_id: null,
+    reference_id: randomUUID(),
+  };
+}
+
 function buildSportTicketInsert(params: {
   status: SportTicketStatus;
   matches: StoredMatchSelection[];
@@ -452,17 +484,19 @@ function buildSportTicketInsert(params: {
   playedSuccessfully: boolean | null;
 }): SportTicketInsert {
   return {
+    ...buildSportTicketDefaults(params.matches),
     status: params.status,
-    currency: "USDT",
-    matches: params.matches,
     total_quota: params.totalQuota,
     payin: params.payin,
     possible_payout: params.totalQuota === null ? null : params.totalQuota * params.payin,
-    is_played: false,
     played_successfully: params.playedSuccessfully,
     message: params.message,
-    reference_id: randomUUID(),
   };
+}
+
+function buildSportTicketDefaultUpdate(matches: StoredMatchSelection[]): SportTicketUpdate {
+  const { reference_id: _referenceId, ...defaults } = buildSportTicketDefaults(matches);
+  return defaults;
 }
 
 async function insertSportTicket(ticket: SportTicketInsert) {
@@ -481,6 +515,28 @@ async function insertSportTicket(ticket: SportTicketInsert) {
   if (!data) {
     console.error("[cron:analyze-matches:sport_tickets:insert:empty]");
     throw new Error("Unable to persist generated sport ticket.");
+  }
+
+  return data.id;
+}
+
+async function updateSportTicket(ticketId: SportTicketInsertResult["id"], ticket: SportTicketUpdate) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("sport_tickets")
+    .update(ticket)
+    .eq("id", ticketId)
+    .select("id")
+    .single<SportTicketInsertResult>();
+
+  if (error) {
+    console.error("[cron:analyze-matches:sport_tickets:update:error]", { ticketId, error });
+    throw new Error("Unable to update generated sport ticket.");
+  }
+
+  if (!data) {
+    console.error("[cron:analyze-matches:sport_tickets:update:empty]", { ticketId });
+    throw new Error("Unable to update generated sport ticket.");
   }
 
   return data.id;
@@ -740,32 +796,50 @@ export async function POST(request: Request) {
     }
 
     const skillPrompt = await loadSportAnalystSkills();
-    const { analysis, selectedSelections } = await buildIncrementalTicket(openaiApiKey, skillPrompt, enabledSelections);
+    const { persistedMatches, selectedSelections, ticketId } = await buildIncrementalTicket(openaiApiKey, skillPrompt, enabledSelections);
     const totalQuota = calculateTotalQuota(selectedSelections);
 
-    if (selectedSelections.length === 0 || !isQuotaInRange(totalQuota)) {
-      const analyzedMatches = buildStoredMatches(getHighProbabilitySelections(enabledSelections, analysis), analysis);
-      const { ticketId } = await insertFailedTicket(NO_VALID_TICKET_MESSAGE, analyzedMatches);
+    if (ticketId === null) {
+      const { ticketId: failedTicketId } = await insertFailedTicket(NO_VALID_TICKET_MESSAGE);
 
       return NextResponse.json({
         success: true,
-        ticketId,
+        ticketId: failedTicketId,
         status: "FAILED",
         message: NO_VALID_TICKET_MESSAGE,
       });
     }
 
-    const proposedBetBodies = selectedSelections.map(mapToProposedBetBody);
-    const pendingMatches = buildStoredMatches(selectedSelections, analysis, proposedBetBodies);
+    if (selectedSelections.length === 0 || !isQuotaInRange(totalQuota)) {
+      const failedTicket = buildSportTicketInsert({
+        status: "FAILED",
+        matches: persistedMatches,
+        totalQuota: null,
+        payin: 0,
+        message: NO_VALID_TICKET_MESSAGE,
+        playedSuccessfully: false,
+      });
+      const { reference_id: _referenceId, ...failedTicketUpdate } = failedTicket;
+      await updateSportTicket(ticketId, failedTicketUpdate);
+
+      return NextResponse.json({
+        success: true,
+        ticketId,
+        status: failedTicket.status,
+        message: failedTicket.message,
+      });
+    }
+
     const pendingTicketInsert = buildSportTicketInsert({
       status: "PENDING_REVIEW",
-      matches: pendingMatches,
+      matches: persistedMatches,
       totalQuota,
       payin: PAYIN,
       message: PENDING_TICKET_MESSAGE,
       playedSuccessfully: null,
     });
-    const ticketId = await insertSportTicket(pendingTicketInsert);
+    const { reference_id: _referenceId, ...pendingTicketUpdate } = pendingTicketInsert;
+    await updateSportTicket(ticketId, pendingTicketUpdate);
 
     return NextResponse.json({
       success: true,
