@@ -2,6 +2,7 @@
 import { Suspense } from "react";
 import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
 import { BasketballEnabledMatchesButton } from "@/components/matches/BasketballEnabledMatchesButton";
+import { SoccerEnabledMatchesButton } from "@/components/matches/SoccerEnabledMatchesButton";
 import { MatchesFilters } from "@/components/matches/MatchesFilters";
 import { MatchesTable, MatchesTableLoading } from "@/components/matches/MatchesTable";
 import { getAvailableMatches, getSports } from "@/lib/cloudbet/cloudbet-service";
@@ -125,7 +126,10 @@ export default async function MatchesPage({ searchParams }: MatchesPageProps) {
               Browse live and upcoming Cloudbet events by sport.
             </Typography>
           </Box>
-          <BasketballEnabledMatchesButton />
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+            <SoccerEnabledMatchesButton />
+            <BasketballEnabledMatchesButton />
+          </Stack>
         </Box>
 
         <Suspense fallback={<MatchesTableLoading />} key={`${sport}-${limit}-${competitionName}`}>

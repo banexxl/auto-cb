@@ -27,6 +27,15 @@ interface EnabledBasketballMatchesResponse {
   message?: string;
 }
 
+interface AnalyzeMatchesResponse {
+  code?: string;
+  message?: string;
+  success?: boolean;
+  status?: string;
+  ticketId?: string | number;
+  pendingTicket?: { isPlayed?: boolean; message?: string };
+}
+
 const currencyOptions = [
   { label: "EUR", value: "EUR" },
   { label: "USD", value: "USD" },
@@ -45,6 +54,14 @@ function createReferenceId() {
   }
 
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function isNoEnabledMatchesResponse(response: Response, body: AnalyzeMatchesResponse) {
+  return response.status === 400 && body.code === "NO_ENABLED_MATCHES";
+}
+
+function formatNoEnabledMatchesMessage(body: AnalyzeMatchesResponse) {
+  return `No enabled basketball matches found. Default no-bet ticket saved${body.ticketId ? `: ${body.ticketId}` : "."} ${body.message ?? "Analysis was not started."}`;
 }
 
 export function TicketClient() {
@@ -100,6 +117,20 @@ export function TicketClient() {
     setCronTestResult(null);
 
     try {
+      const runAnalysisCron = async () => {
+        const response = await fetch("/api/cron/analyze-matches", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-cron-secret": trimmedCronSecret,
+          },
+          body: JSON.stringify({}),
+        });
+
+        const body = (await response.json()) as AnalyzeMatchesResponse;
+        return { body, response };
+      };
+
       const enabledMatchesResponse = await fetch("/api/cloudbet/matches/basketball-enabled", { cache: "no-store" });
       const enabledMatchesBody = (await enabledMatchesResponse.json()) as EnabledBasketballMatchesResponse;
 
@@ -109,24 +140,28 @@ export function TicketClient() {
       }
 
       if (enabledMatchesBody.totalMatches === 0 || enabledMatchesBody.totalSelections === 0) {
-        setCronTestResult({ message: "No enabled basketball matches found. Analysis was not started.", severity: "warning" });
+        const { body, response } = await runAnalysisCron();
+
+        if (isNoEnabledMatchesResponse(response, body)) {
+          setCronTestResult({ message: formatNoEnabledMatchesMessage(body), severity: "warning" });
+          return;
+        }
+
+        if (!response.ok) {
+          setCronTestResult({ message: body.message ?? "Unable to save the no-match ticket.", severity: "error" });
+          return;
+        }
+
+        setCronTestResult({ message: formatNoEnabledMatchesMessage(body), severity: "warning" });
         return;
       }
 
-      const response = await fetch("/api/cron/analyze-matches", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-cron-secret": trimmedCronSecret,
-        },
-        body: JSON.stringify({}),
-      });
+      const { body, response } = await runAnalysisCron();
 
-      const body = (await response.json()) as {
-        message?: string;
-        ticketId?: string | number;
-        pendingTicket?: { isPlayed?: boolean; message?: string };
-      };
+      if (isNoEnabledMatchesResponse(response, body)) {
+        setCronTestResult({ message: formatNoEnabledMatchesMessage(body), severity: "warning" });
+        return;
+      }
 
       if (!response.ok) {
         setCronTestResult({ message: body.message ?? "AI analysis test failed.", severity: "error" });

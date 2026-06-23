@@ -272,6 +272,7 @@ export interface MatchQueryOptions {
   sport?: string;
   limit?: number;
   markets?: readonly string[];
+  signal?: AbortSignal;
 }
 
 export async function getAllMatches(options: MatchQueryOptions = {}): Promise<CloudbetMatch[]> {
@@ -287,6 +288,7 @@ export async function getAllMatches(options: MatchQueryOptions = {}): Promise<Cl
       limit: options.limit ?? DEFAULT_LIMIT,
       markets,
     },
+    signal: options.signal,
   });
 
   return extractMatchesFromFixtures(response, sport);
@@ -303,6 +305,7 @@ export async function getAvailableMatches(options: MatchQueryOptions = {}): Prom
       limit: options.limit ?? DEFAULT_LIMIT,
       markets,
     },
+    signal: options.signal,
   });
 
   const liveMatches = extractMatchesFromFixtures(liveResponse, sport);
@@ -317,6 +320,8 @@ export async function getAvailableMatches(options: MatchQueryOptions = {}): Prom
 export interface MatchDetailsOptions {
   sport?: string;
   markets?: readonly string[];
+  signal?: AbortSignal;
+  refreshLines?: boolean;
 }
 
 export async function getMatchById(
@@ -329,14 +334,17 @@ export async function getMatchById(
     query: {
       markets,
     },
+    signal: options.signal,
   });
 
   if (getMarketsCount(filteredMatch) > 0) {
-    return refreshMatchLinePrices(filteredMatch);
+    return options.refreshLines === false ? filteredMatch : refreshMatchLinePrices(filteredMatch);
   }
 
-  const unfilteredMatch = await cloudbetGet<CloudbetEventResponse>(`/v2/odds/events/${encodeURIComponent(matchId)}`);
-  return refreshMatchLinePrices(unfilteredMatch);
+  const unfilteredMatch = await cloudbetGet<CloudbetEventResponse>(`/v2/odds/events/${encodeURIComponent(matchId)}`, {
+    signal: options.signal,
+  });
+  return options.refreshLines === false ? unfilteredMatch : refreshMatchLinePrices(unfilteredMatch);
 }
 
 

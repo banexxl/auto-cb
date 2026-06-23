@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 const CLOUDBET_MATCHES_TIMEOUT_MS = Number(process.env.CLOUDBET_MATCHES_TIMEOUT_MS ?? 10000);
 const CLOUDBET_MATCH_DETAIL_TIMEOUT_MS = Number(process.env.CLOUDBET_MATCH_DETAIL_TIMEOUT_MS ?? 8000);
 
-interface EnabledBasketballSelection {
+interface EnabledSoccerSelection {
   marketKey: string;
   marketUrl: string;
   outcome: string;
@@ -21,18 +21,18 @@ interface EnabledBasketballSelection {
   status: "SELECTION_ENABLED";
 }
 
-interface EnabledBasketballMatch {
+interface EnabledSoccerMatch {
   id: number;
   name: string;
   status: CloudbetMatch["status"];
   cutoffTime?: string;
   competitionName?: string;
-  sportKey: "basketball";
-  selections: EnabledBasketballSelection[];
+  sportKey: "soccer";
+  selections: EnabledSoccerSelection[];
 }
 
-interface EnabledBasketballMatchesResponse {
-  matches: EnabledBasketballMatch[];
+interface EnabledSoccerMatchesResponse {
+  matches: EnabledSoccerMatch[];
   totalMatches: number;
   totalSelections: number;
 }
@@ -45,7 +45,7 @@ function getSelections(market: CloudbetMarket): CloudbetOddsSelection[] {
   return Object.values(market.submarkets ?? {}).flatMap((submarket) => submarket.selections ?? []);
 }
 
-function getEnabledSelections(match: CloudbetMatch): EnabledBasketballSelection[] {
+function getEnabledSelections(match: CloudbetMatch): EnabledSoccerSelection[] {
   return Object.entries(match.markets ?? {}).flatMap(([marketKey, market]) =>
     getSelections(market).flatMap((selection) => {
       if (selection.status !== "SELECTION_ENABLED" || !selection.marketUrl) {
@@ -68,7 +68,7 @@ function getEnabledSelections(match: CloudbetMatch): EnabledBasketballSelection[
   );
 }
 
-function toEnabledBasketballMatch(match: CloudbetMatch): EnabledBasketballMatch | null {
+function toEnabledSoccerMatch(match: CloudbetMatch): EnabledSoccerMatch | null {
   const selections = getEnabledSelections(match);
 
   if (selections.length === 0) {
@@ -81,7 +81,7 @@ function toEnabledBasketballMatch(match: CloudbetMatch): EnabledBasketballMatch 
     status: match.status,
     cutoffTime: match.cutoffTime,
     competitionName: match.competition?.name,
-    sportKey: "basketball",
+    sportKey: "soccer",
     selections,
   };
 }
@@ -103,14 +103,14 @@ export async function GET(request: Request) {
 
   try {
     const matches = await getAvailableMatches({
-      sport: "basketball",
+      sport: "soccer",
       limit,
       signal: AbortSignal.timeout(CLOUDBET_MATCHES_TIMEOUT_MS),
     });
     const settledMatches = await Promise.allSettled(
       matches.map((match) =>
         getMatchById(String(match.id), {
-          sport: "basketball",
+          sport: "soccer",
           refreshLines: false,
           signal: AbortSignal.timeout(CLOUDBET_MATCH_DETAIL_TIMEOUT_MS),
         }),
@@ -119,7 +119,7 @@ export async function GET(request: Request) {
     const enabledMatches = settledMatches
       .flatMap((settledMatch, index) => {
         const match = settledMatch.status === "fulfilled" ? settledMatch.value : matches[index];
-        const enabledMatch = toEnabledBasketballMatch(match);
+        const enabledMatch = toEnabledSoccerMatch(match);
         return enabledMatch ? [enabledMatch] : [];
       })
       .sort((left, right) => {
@@ -128,7 +128,7 @@ export async function GET(request: Request) {
         return leftTime - rightTime;
       });
 
-    const response: EnabledBasketballMatchesResponse = {
+    const response: EnabledSoccerMatchesResponse = {
       matches: enabledMatches,
       totalMatches: enabledMatches.length,
       totalSelections: enabledMatches.reduce((total, match) => total + match.selections.length, 0),
@@ -143,6 +143,6 @@ export async function GET(request: Request) {
       );
     }
 
-    return NextResponse.json({ message: "Unable to fetch enabled basketball matches." }, { status: 500 });
+    return NextResponse.json({ message: "Unable to fetch enabled soccer matches." }, { status: 500 });
   }
 }
