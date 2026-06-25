@@ -17,7 +17,7 @@ const ENABLED_SELECTION_STATUS = "SELECTION_ENABLED";
 const ANALYSIS_MATCH_LIMIT_PER_SPORT = Number(process.env.CRON_ANALYSIS_MATCH_LIMIT_PER_SPORT ?? 100);
 const CLOUDBET_MATCHES_TIMEOUT_MS = Number(process.env.CRON_CLOUDBET_MATCHES_TIMEOUT_MS ?? 10000);
 const CLOUDBET_MATCH_DETAIL_TIMEOUT_MS = Number(process.env.CRON_CLOUDBET_MATCH_DETAIL_TIMEOUT_MS ?? 8000);
-const OPENAI_RESPONSES_TIMEOUT_MS = Number(process.env.CRON_OPENAI_RESPONSES_TIMEOUT_MS ?? 60000);
+const OPENAI_RESPONSES_TIMEOUT_MS = Number(process.env.CRON_OPENAI_RESPONSES_TIMEOUT_MS ?? 120000);
 const PAYIN = 1;
 const MIN_MODEL_PROBABILITY = 65;
 const MIN_TOTAL_QUOTA = 1.5;
@@ -142,6 +142,7 @@ function jsonNoEnabledMatches(ticketId: SportTicketInsertResult["id"], ticket: S
       ticketId,
       status: ticket.status,
       message: ticket.message,
+      proposedBets: [],
     },
     { status: 400 },
   );
@@ -478,6 +479,29 @@ function buildStoredMatches(
   });
 }
 
+function toPublicProposedBet(selection: MatchSelection, proposedBetBody: ProposedBetBody) {
+  return {
+    currency: proposedBetBody.currency,
+    eventId: proposedBetBody.eventId,
+    marketUrl: proposedBetBody.marketUrl,
+    outcome: proposedBetBody.outcome,
+    price: proposedBetBody.price,
+    referenceId: proposedBetBody.referenceId,
+    stake: proposedBetBody.stake,
+    matchName: selection.matchName,
+    marketKey: selection.marketKey,
+    competitionName: selection.competitionName,
+    sportKey: selection.sportKey,
+  };
+}
+
+function buildPublicProposedBets(persistedMatches: StoredMatchSelection[]) {
+  return persistedMatches
+    .filter((storedMatch): storedMatch is StoredMatchSelection & { proposedBetBody: ProposedBetBody } =>
+      storedMatch.proposedBetBody !== undefined,
+    )
+    .map((storedMatch) => toPublicProposedBet(storedMatch, storedMatch.proposedBetBody));
+}
 function buildSportTicketDefaults(matches: StoredMatchSelection[], message: string | null = null): SportTicketInsert {
   return {
     status: "PENDING_REVIEW",
@@ -848,9 +872,14 @@ export async function POST(request: Request) {
       return jsonNoEnabledMatches(ticketId, ticket);
     }
 
-    const firstMatchSelections = groupSelectionsByMatch(enabledSelections)[0] ?? [];
+    const matchGroups = groupSelectionsByMatch(enabledSelections);
+    const randomMatchSelections = matchGroups.length > 0
+      ? matchGroups[Math.floor(Math.random() * matchGroups.length)]
+        .filter((s) => s.price >= 1.2 && s.price <= 2.2)
+        .slice(0, 20)
+      : [];
 
-    if (firstMatchSelections.length === 0) {
+    if (randomMatchSelections.length === 0) {
       const { ticket, ticketId } = await insertDefaultTicket([], NO_MARKETS_MESSAGE);
 
       return jsonNoEnabledMatches(ticketId, ticket);
@@ -864,7 +893,7 @@ export async function POST(request: Request) {
 
     const openaiApiKey = process.env.OPENAI_API_KEY as string;
     const skillPrompt = await loadSportAnalystSkills();
-    const { persistedMatches, selectedSelections, ticketId } = await buildIncrementalTicket(openaiApiKey, skillPrompt, firstMatchSelections);
+    const { persistedMatches, selectedSelections, ticketId } = await buildIncrementalTicket(openaiApiKey, skillPrompt, randomMatchSelections);
     const totalQuota = calculateTotalQuota(selectedSelections);
 
     if (ticketId === null) {
@@ -875,6 +904,7 @@ export async function POST(request: Request) {
         ticketId: failedTicketId,
         status: "FAILED",
         message: NO_VALID_TICKET_MESSAGE,
+        proposedBets: [],
       });
     }
 
@@ -895,6 +925,7 @@ export async function POST(request: Request) {
         ticketId,
         status: failedTicket.status,
         message: failedTicket.message,
+        proposedBets: [],
       });
     }
 
@@ -914,9 +945,17 @@ export async function POST(request: Request) {
       ticketId,
       status: pendingTicketInsert.status,
       message: pendingTicketInsert.message,
+      proposedBets: buildPublicProposedBets(persistedMatches),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to analyze matches.";
+    const isTimeout =
+      error instanceof DOMException && error.name === "TimeoutError";
+
+    const message = isTimeout
+      ? "OpenAI analysis timed out. Try reducing candidate selections or increasing CRON_OPENAI_RESPONSES_TIMEOUT_MS."
+      : error instanceof Error
+        ? error.message
+        : "Unable to analyze matches.";
 
     console.error("[cron:analyze-matches:error]", error);
     return jsonError(message, 500);

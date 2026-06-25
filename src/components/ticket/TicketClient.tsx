@@ -20,12 +20,6 @@ interface CronTestResult {
   severity: "success" | "warning" | "error";
 }
 
-interface EnabledBasketballMatchesResponse {
-  matches: unknown[];
-  totalMatches: number;
-  totalSelections: number;
-  message?: string;
-}
 
 interface AnalyzeMatchesResponse {
   code?: string;
@@ -34,6 +28,21 @@ interface AnalyzeMatchesResponse {
   status?: string;
   ticketId?: string | number;
   pendingTicket?: { isPlayed?: boolean; message?: string };
+  proposedBets?: ProposedBet[];
+}
+
+interface ProposedBet {
+  currency: string;
+  eventId: string;
+  marketUrl: string;
+  outcome: string;
+  price: number;
+  referenceId: string;
+  stake: number;
+  matchName?: string;
+  marketKey?: string;
+  competitionName?: string;
+  sportKey?: string;
 }
 
 const currencyOptions = [
@@ -60,8 +69,46 @@ function isNoEnabledMatchesResponse(response: Response, body: AnalyzeMatchesResp
   return response.status === 400 && body.code === "NO_ENABLED_MATCHES";
 }
 
-function formatNoEnabledMatchesMessage(body: AnalyzeMatchesResponse) {
-  return `No enabled basketball matches found. Default no-bet ticket saved${body.ticketId ? `: ${body.ticketId}` : "."} ${body.message ?? "Analysis was not started."}`;
+
+interface EnabledSelectionPayload {
+  marketKey: string;
+  marketUrl: string;
+  outcome: string;
+  params?: string;
+  price: number;
+  probability?: number;
+  side?: string;
+  minStake?: number;
+  maxStake?: number;
+  status: "SELECTION_ENABLED";
+}
+
+interface EnabledMatchPayload {
+  id: number;
+  name: string;
+  status: string;
+  cutoffTime?: string;
+  competitionName?: string;
+  sportKey: string;
+  selections: EnabledSelectionPayload[];
+}
+
+interface EnabledMatchesPayloadResponse {
+  matches: EnabledMatchPayload[];
+  totalMatches: number;
+  totalSelections: number;
+  message?: string;
+}
+
+async function fetchEnabledMatches(sport: "basketball"): Promise<EnabledMatchesPayloadResponse> {
+  const response = await fetch(`/api/cloudbet/matches/${sport}-enabled`, { cache: "no-store" });
+  const body = (await response.json()) as EnabledMatchesPayloadResponse;
+
+  if (!response.ok) {
+    throw new Error(body.message ?? `Unable to load enabled ${sport} matches.`);
+  }
+
+  return body;
 }
 
 export function TicketClient() {
@@ -105,6 +152,107 @@ export function TicketClient() {
     setCurrency(event.target.value);
   }
 
+  async function runAnalysisCron(matches: Array<Record<string, unknown>>): Promise<{ body: AnalyzeMatchesResponse; response: Response }> {
+    const response = await fetch("/api/cron/analyze-matches", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-cron-secret": cronSecret.trim(),
+      },
+      body: JSON.stringify({ matches }),
+    });
+
+    const body = (await response.json()) as AnalyzeMatchesResponse;
+    return { body, response };
+  }
+
+  function mapMatchesToCandidateSelections(matches: EnabledMatchPayload[]) {
+    const candidateSelections: Array<Record<string, unknown>> = [];
+
+    matches.forEach((match) => {
+      match.selections.forEach((selection) => {
+        candidateSelections.push({
+          candidateId: `${match.id}:${selection.marketUrl}:${selection.outcome}`,
+          matchId: match.id,
+          marketUrl: selection.marketUrl,
+          outcome: selection.outcome,
+          price: selection.price,
+          status: selection.status,
+          minStake: selection.minStake ?? 0,
+          maxStake: selection.maxStake ?? 0,
+          sportKey: match.sportKey,
+          matchName: match.name,
+          competitionName: match.competitionName,
+          marketKey: selection.marketKey,
+          params: selection.params,
+          side: selection.side,
+          probability: selection.probability,
+          cutoffTime: match.cutoffTime,
+        });
+      });
+    });
+
+    return candidateSelections;
+  }
+
+  function formatNoEnabledMatchesMessage(body: AnalyzeMatchesResponse, response: Response) {
+    if (!isNoEnabledMatchesResponse(response, body)) {
+      return `AI analysis ticket created${body.ticketId ? `: ${body.ticketId}` : "."}`;
+    }
+
+    return `No enabled basketball matches found. Default no-bet ticket saved${body.ticketId ? `: ${body.ticketId}` : "."} ${body.message ?? "Analysis was not started."}`;
+  }
+
+  async function placeProposedBet(proposedBet: ProposedBet): Promise<BetResult> {
+    const referenceId = createReferenceId();
+
+    try {
+      const response = await fetch("/api/cloudbet/bets/place", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          currency: proposedBet.currency,
+          eventId: proposedBet.eventId,
+          marketUrl: proposedBet.marketUrl,
+          outcome: proposedBet.outcome,
+          price: proposedBet.price,
+          referenceId,
+          stake: proposedBet.stake,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { message?: string };
+        return {
+          id: referenceId,
+          message: `${proposedBet.matchName ?? proposedBet.eventId}: ${body.message ?? "Bet placement failed."}`,
+          placed: false,
+          severity: "error",
+        };
+      }
+
+      const body = (await response.json()) as PlaceTicketBetApiResponse;
+      const status = body.bet.status ?? body.bet.state ?? "UNKNOWN";
+      const error = body.bet.error ?? body.bet.rejectionCode;
+      const accepted = status === "ACCEPTED";
+      const pending = status === "PENDING_ACCEPTANCE" || status === "PENDING";
+
+      return {
+        id: referenceId,
+        message: `${proposedBet.matchName ?? proposedBet.eventId}: ${status}${error ? ` - ${error}` : ""}`,
+        placed: true,
+        severity: accepted ? "success" : pending ? "warning" : "error",
+      };
+    } catch {
+      return {
+        id: referenceId,
+        message: `${proposedBet.matchName ?? proposedBet.eventId}: bet placement request failed.`,
+        placed: false,
+        severity: "error",
+      };
+    }
+  }
+
   async function handleAnalyzeTicket() {
     const trimmedCronSecret = cronSecret.trim();
 
@@ -115,51 +263,30 @@ export function TicketClient() {
 
     setIsTestingAnalysis(true);
     setCronTestResult(null);
+    setResults([]);
 
     try {
-      const runAnalysisCron = async () => {
-        const response = await fetch("/api/cron/analyze-matches", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-cron-secret": trimmedCronSecret,
-          },
-          body: JSON.stringify({}),
-        });
+      const basketball = await fetchEnabledMatches("basketball");
 
-        const body = (await response.json()) as AnalyzeMatchesResponse;
-        return { body, response };
-      };
-
-      const enabledMatchesResponse = await fetch("/api/cloudbet/matches/basketball-enabled", { cache: "no-store" });
-      const enabledMatchesBody = (await enabledMatchesResponse.json()) as EnabledBasketballMatchesResponse;
-
-      if (!enabledMatchesResponse.ok) {
-        setCronTestResult({ message: enabledMatchesBody.message ?? "Unable to check enabled basketball matches.", severity: "error" });
+      if (basketball.matches.length === 0) {
+        const { body, response } = await runAnalysisCron([]);
+        setCronTestResult({ message: formatNoEnabledMatchesMessage(body, response), severity: "warning" });
         return;
       }
 
-      if (enabledMatchesBody.totalMatches === 0 || enabledMatchesBody.totalSelections === 0) {
-        const { body, response } = await runAnalysisCron();
+      const randomMatch = basketball.matches[Math.floor(Math.random() * basketball.matches.length)];
+      const candidateSelections = mapMatchesToCandidateSelections([randomMatch]);
 
-        if (isNoEnabledMatchesResponse(response, body)) {
-          setCronTestResult({ message: formatNoEnabledMatchesMessage(body), severity: "warning" });
-          return;
-        }
-
-        if (!response.ok) {
-          setCronTestResult({ message: body.message ?? "Unable to save the no-match ticket.", severity: "error" });
-          return;
-        }
-
-        setCronTestResult({ message: formatNoEnabledMatchesMessage(body), severity: "warning" });
+      if (candidateSelections.length === 0) {
+        const { body, response } = await runAnalysisCron([]);
+        setCronTestResult({ message: formatNoEnabledMatchesMessage(body, response), severity: "warning" });
         return;
       }
 
-      const { body, response } = await runAnalysisCron();
+      const { body, response } = await runAnalysisCron(candidateSelections);
 
       if (isNoEnabledMatchesResponse(response, body)) {
-        setCronTestResult({ message: formatNoEnabledMatchesMessage(body), severity: "warning" });
+        setCronTestResult({ message: formatNoEnabledMatchesMessage(body, response), severity: "warning" });
         return;
       }
 
@@ -168,9 +295,19 @@ export function TicketClient() {
         return;
       }
 
+      const proposedBets = body.proposedBets ?? [];
+      const placeResults = await Promise.all(proposedBets.map((proposedBet) => placeProposedBet(proposedBet)));
+
+      if (placeResults.length > 0) {
+        setResults(placeResults);
+      }
+
+      const acceptedCount = placeResults.filter((result: BetResult) => result.severity === "success").length;
+      const placedAny = acceptedCount > 0;
+
       setCronTestResult({
-        message: `AI analysis ticket created${body.ticketId ? `: ${body.ticketId}` : "."} ${body.pendingTicket?.message ?? "Ticket is not played yet."}`,
-        severity: "success",
+        message: `AI analysis ticket created${body.ticketId ? `: ${body.ticketId}` : "."} ${proposedBets.length === 0 ? "No selections met the criteria." : `Placed ${acceptedCount}/${proposedBets.length} bet(s) on Cloudbet.`}`,
+        severity: response.ok ? (proposedBets.length === 0 ? "warning" : placedAny ? "success" : "warning") : "error",
       });
     } catch {
       setCronTestResult({ message: "Unable to run AI analysis test.", severity: "error" });
