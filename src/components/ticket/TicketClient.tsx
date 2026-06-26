@@ -1,6 +1,33 @@
 ﻿"use client";
 
-import { Alert, Box, Button, Card, CardContent, Chip, Divider, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, TextField, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { useEffect, useMemo, useState } from "react";
 import type { PlaceTicketBetApiResponse, PlaceTicketBetRequest, TicketSelection } from "@/lib/ticket-types";
@@ -45,6 +72,14 @@ interface ProposedBet {
   sportKey?: string;
 }
 
+interface AnalysisDetails {
+  ticketId?: string | number;
+  status?: string;
+  message?: string;
+  code?: string;
+  proposedBets: ProposedBet[];
+}
+
 const currencyOptions = [
   { label: "EUR", value: "EUR" },
   { label: "USD", value: "USD" },
@@ -55,6 +90,10 @@ const currencyOptions = [
 
 function formatOdds(value: number) {
   return value.toFixed(3);
+}
+
+function formatStake(value: number) {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 8 });
 }
 
 function createReferenceId() {
@@ -120,6 +159,8 @@ export function TicketClient() {
   const [isTestingAnalysis, setIsTestingAnalysis] = useState(false);
   const [results, setResults] = useState<BetResult[]>([]);
   const [cronTestResult, setCronTestResult] = useState<CronTestResult | null>(null);
+  const [analysisDetails, setAnalysisDetails] = useState<AnalysisDetails | null>(null);
+  const [isAnalysisDialogOpen, setIsAnalysisDialogOpen] = useState(false);
   const summary = useMemo(() => calculateTicketSummary(selections), [selections]);
 
   function refreshTicket() {
@@ -150,6 +191,10 @@ export function TicketClient() {
 
   function handleCurrencyChange(event: SelectChangeEvent<string>) {
     setCurrency(event.target.value);
+  }
+
+  function handleCloseAnalysisDialog() {
+    setIsAnalysisDialogOpen(false);
   }
 
   async function runAnalysisCron(matches: Array<Record<string, unknown>>): Promise<{ body: AnalyzeMatchesResponse; response: Response }> {
@@ -203,6 +248,16 @@ export function TicketClient() {
     return `No enabled basketball matches found. Default no-bet ticket saved${body.ticketId ? `: ${body.ticketId}` : "."} ${body.message ?? "Analysis was not started."}`;
   }
 
+  function buildAnalysisDetails(body: AnalyzeMatchesResponse): AnalysisDetails {
+    return {
+      ticketId: body.ticketId,
+      status: body.status,
+      message: body.message,
+      code: body.code,
+      proposedBets: body.proposedBets ?? [],
+    };
+  }
+
   async function placeProposedBet(proposedBet: ProposedBet): Promise<BetResult> {
     const referenceId = createReferenceId();
 
@@ -253,6 +308,26 @@ export function TicketClient() {
     }
   }
 
+  async function runAnalysis(): Promise<{ details: AnalysisDetails; response: Response; body: AnalyzeMatchesResponse }> {
+    const basketball = await fetchEnabledMatches("basketball");
+
+    if (basketball.matches.length === 0) {
+      const { body, response } = await runAnalysisCron([]);
+      return { details: buildAnalysisDetails(body), response, body };
+    }
+
+    const randomMatch = basketball.matches[Math.floor(Math.random() * basketball.matches.length)];
+    const candidateSelections = mapMatchesToCandidateSelections([randomMatch]);
+
+    if (candidateSelections.length === 0) {
+      const { body, response } = await runAnalysisCron([]);
+      return { details: buildAnalysisDetails(body), response, body };
+    }
+
+    const { body, response } = await runAnalysisCron(candidateSelections);
+    return { details: buildAnalysisDetails(body), response, body };
+  }
+
   async function handleAnalyzeTicket() {
     const trimmedCronSecret = cronSecret.trim();
 
@@ -264,26 +339,51 @@ export function TicketClient() {
     setIsTestingAnalysis(true);
     setCronTestResult(null);
     setResults([]);
+    setAnalysisDetails(null);
 
     try {
-      const basketball = await fetchEnabledMatches("basketball");
+      const { details, body, response } = await runAnalysis();
+      setAnalysisDetails(details);
+      setIsAnalysisDialogOpen(true);
 
-      if (basketball.matches.length === 0) {
-        const { body, response } = await runAnalysisCron([]);
+      if (isNoEnabledMatchesResponse(response, body)) {
         setCronTestResult({ message: formatNoEnabledMatchesMessage(body, response), severity: "warning" });
         return;
       }
 
-      const randomMatch = basketball.matches[Math.floor(Math.random() * basketball.matches.length)];
-      const candidateSelections = mapMatchesToCandidateSelections([randomMatch]);
-
-      if (candidateSelections.length === 0) {
-        const { body, response } = await runAnalysisCron([]);
-        setCronTestResult({ message: formatNoEnabledMatchesMessage(body, response), severity: "warning" });
+      if (!response.ok) {
+        setCronTestResult({ message: body.message ?? "AI analysis test failed.", severity: "error" });
         return;
       }
 
-      const { body, response } = await runAnalysisCron(candidateSelections);
+      setCronTestResult({
+        message: `AI analysis ticket created${body.ticketId ? `: ${body.ticketId}` : "."} ${(body.proposedBets ?? []).length === 0 ? "No selections met the criteria." : "Review the analysis dialog before placing the bet."}`,
+        severity: body.proposedBets && body.proposedBets.length > 0 ? "success" : "warning",
+      });
+    } catch {
+      setCronTestResult({ message: "Unable to run AI analysis test.", severity: "error" });
+    } finally {
+      setIsTestingAnalysis(false);
+    }
+  }
+
+  async function handleAnalyzeAndPlaceBet() {
+    const trimmedCronSecret = cronSecret.trim();
+
+    if (!trimmedCronSecret) {
+      setCronTestResult({ message: "Enter the cron secret before testing analysis.", severity: "warning" });
+      return;
+    }
+
+    setIsTestingAnalysis(true);
+    setCronTestResult(null);
+    setResults([]);
+    setAnalysisDetails(null);
+
+    try {
+      const { details, body, response } = await runAnalysis();
+      setAnalysisDetails(details);
+      setIsAnalysisDialogOpen(true);
 
       if (isNoEnabledMatchesResponse(response, body)) {
         setCronTestResult({ message: formatNoEnabledMatchesMessage(body, response), severity: "warning" });
@@ -296,6 +396,15 @@ export function TicketClient() {
       }
 
       const proposedBets = body.proposedBets ?? [];
+
+      if (proposedBets.length === 0) {
+        setCronTestResult({
+          message: `AI analysis ticket created${body.ticketId ? `: ${body.ticketId}` : "."} No selections met the criteria, so no bet was placed.`,
+          severity: "warning",
+        });
+        return;
+      }
+
       const placeResults = await Promise.all(proposedBets.map((proposedBet) => placeProposedBet(proposedBet)));
 
       if (placeResults.length > 0) {
@@ -306,8 +415,8 @@ export function TicketClient() {
       const placedAny = acceptedCount > 0;
 
       setCronTestResult({
-        message: `AI analysis ticket created${body.ticketId ? `: ${body.ticketId}` : "."} ${proposedBets.length === 0 ? "No selections met the criteria." : `Placed ${acceptedCount}/${proposedBets.length} bet(s) on Cloudbet.`}`,
-        severity: response.ok ? (proposedBets.length === 0 ? "warning" : placedAny ? "success" : "warning") : "error",
+        message: `AI analysis ticket created${body.ticketId ? `: ${body.ticketId}` : "."} Placed ${acceptedCount}/${proposedBets.length} bet(s) on Cloudbet.`,
+        severity: placedAny ? "success" : "warning",
       });
     } catch {
       setCronTestResult({ message: "Unable to run AI analysis test.", severity: "error" });
@@ -387,6 +496,11 @@ export function TicketClient() {
     }
   }
 
+  const totalProposedOdds = analysisDetails
+    ? analysisDetails.proposedBets.reduce((total, proposedBet) => total * proposedBet.price, 1)
+    : 0;
+  const hasProposedBets = analysisDetails !== null && analysisDetails.proposedBets.length > 0;
+
   return (
     <Stack spacing={3}>
       <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
@@ -399,7 +513,7 @@ export function TicketClient() {
         <Card sx={{ borderRadius: 4, flex: 1 }}>
           <CardContent>
             <Typography color="text.secondary" variant="body2">Total quota</Typography>
-            <Typography sx={{ fontWeight: 900 }} variant="h4">{summary.totalOdds > 0 ? formatOdds(summary.totalOdds) : "—"}</Typography>
+            <Typography sx={{ fontWeight: 900 }} variant="h4">{summary.totalOdds > 0 ? formatOdds(summary.totalOdds) : "�"}</Typography>
           </CardContent>
         </Card>
       </Stack>
@@ -452,9 +566,14 @@ export function TicketClient() {
                 type="password"
                 value={cronSecret}
               />
-              <Button disabled={isTestingAnalysis} onClick={handleAnalyzeTicket} variant="outlined">
-                {isTestingAnalysis ? "Testing..." : "Test AI analysis"}
-              </Button>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <Button disabled={isTestingAnalysis} onClick={handleAnalyzeTicket} variant="outlined">
+                  {isTestingAnalysis ? "Testing..." : "Test AI analysis"}
+                </Button>
+                <Button disabled={isTestingAnalysis} onClick={handleAnalyzeAndPlaceBet} variant="contained">
+                  {isTestingAnalysis ? "Working..." : "Analyze & place bet"}
+                </Button>
+              </Stack>
             </Stack>
             {cronTestResult ? <Alert severity={cronTestResult.severity}>{cronTestResult.message}</Alert> : null}
           </Stack>
@@ -493,7 +612,7 @@ export function TicketClient() {
                 <Divider sx={{ my: 2 }} />
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { sm: "center" }, justifyContent: "space-between" }}>
                   <Box>
-                    <Typography sx={{ fontWeight: 800 }}>{selection.marketName} · {selection.outcome}</Typography>
+                    <Typography sx={{ fontWeight: 800 }}>{selection.marketName} � {selection.outcome}</Typography>
                     {selection.params ? <Typography color="text.secondary" variant="body2">{formatCloudbetParam(selection.params)}</Typography> : null}
                   </Box>
                   <Chip color="success" label={formatOdds(selection.price)} />
@@ -503,7 +622,75 @@ export function TicketClient() {
           ))}
         </Stack>
       )}
+
+      <Dialog fullWidth maxWidth="md" onClose={handleCloseAnalysisDialog} open={isAnalysisDialogOpen}>
+        <DialogTitle>AI analysis details</DialogTitle>
+        <DialogContent dividers>
+          {analysisDetails ? (
+            <Stack spacing={2}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ flexWrap: "wrap" }}>
+                <Chip color={analysisDetails.status === "PENDING_REVIEW" ? "warning" : analysisDetails.status === "FAILED" ? "error" : "default"} label={`Status: ${analysisDetails.status ?? "UNKNOWN"}`} />
+                {analysisDetails.ticketId !== undefined ? <Chip color="primary" label={`Ticket: ${analysisDetails.ticketId}`} /> : null}
+                {analysisDetails.code ? <Chip color="default" label={`Code: ${analysisDetails.code}`} /> : null}
+                {hasProposedBets ? <Chip color="success" label={`Total quota: ${formatOdds(totalProposedOdds)}`} /> : null}
+              </Stack>
+              <Typography color="text.secondary" variant="body2">
+                {analysisDetails.message ?? "No additional message from the cron endpoint."}
+              </Typography>
+              <Divider />
+              {hasProposedBets ? (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Match</TableCell>
+                        <TableCell>Market</TableCell>
+                        <TableCell>Outcome</TableCell>
+                        <TableCell align="right">Odds</TableCell>
+                        <TableCell align="right">Stake</TableCell>
+                        <TableCell>Currency</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {analysisDetails.proposedBets.map((proposedBet) => (
+                        <TableRow key={`${proposedBet.eventId}:${proposedBet.marketUrl}:${proposedBet.outcome}:${proposedBet.referenceId}`}>
+                          <TableCell>
+                            <Stack spacing={0.25}>
+                              <Typography sx={{ fontWeight: 700 }} variant="body2">{proposedBet.matchName ?? proposedBet.eventId}</Typography>
+                              {proposedBet.competitionName ? <Typography color="text.secondary" variant="caption">{proposedBet.competitionName}</Typography> : null}
+                            </Stack>
+                          </TableCell>
+                          <TableCell>{proposedBet.marketKey ? formatCloudbetOutcome(proposedBet.marketKey) : "�"}</TableCell>
+                          <TableCell>{formatCloudbetOutcome(proposedBet.outcome)}</TableCell>
+                          <TableCell align="right">{formatOdds(proposedBet.price)}</TableCell>
+                          <TableCell align="right">{formatStake(proposedBet.stake)}</TableCell>
+                          <TableCell>{proposedBet.currency}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Alert severity="info">No proposed bets were generated for this analysis run.</Alert>
+              )}
+              {isTestingAnalysis ? (
+                <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                  <CircularProgress size={18} />
+                  <Typography color="text.secondary" variant="body2">Running analysis...</Typography>
+                </Stack>
+              ) : null}
+            </Stack>
+          ) : (
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <CircularProgress size={18} />
+              <Typography color="text.secondary" variant="body2">Awaiting analysis response...</Typography>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAnalysisDialog}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }
-
