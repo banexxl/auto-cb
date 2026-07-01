@@ -47,7 +47,6 @@ interface CronTestResult {
   severity: "success" | "warning" | "error";
 }
 
-
 interface AnalyzeMatchesResponse {
   code?: string;
   message?: string;
@@ -107,7 +106,6 @@ function createReferenceId() {
 function isNoEnabledMatchesResponse(response: Response, body: AnalyzeMatchesResponse) {
   return response.status === 400 && body.code === "NO_ENABLED_MATCHES";
 }
-
 
 interface EnabledSelectionPayload {
   marketKey: string;
